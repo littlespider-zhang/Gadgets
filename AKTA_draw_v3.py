@@ -1,5 +1,6 @@
-# V3 update
-# optimized font size & tick number
+# V3.2 update
+# optimized labeling
+# solved missing fraction #2
 
 import os
 import math
@@ -12,7 +13,7 @@ plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示为方块的问�
 plt.rc('xtick', labelsize=24)  # 全局 x 轴刻度大小
 plt.rc('ytick', labelsize=24) # 全局 y 轴刻度大小
 line_thickness = 2
-label_font_size = 24
+label_font_size = 32
 
 from charset_normalizer import detect
 
@@ -53,16 +54,13 @@ def convert_to_utf8(input_file, output_file):
         print(f"An error occurred: {str(e)}")
 
 # Gadgets
-def zyy_find(x, df):
-    position = [(idx,col)
-                for idx in df.index
-                for col in df.columns
-                if df.loc[idx, col] == x]
-    if len(position) == 1:
-        return position[0]
-    else:
-        print("Warning from zyy_find!!!")
-        return None
+def curve_find(x, df):
+    """From chatGPT"""
+    where = (df == x)
+    if where.sum().sum() == 1:
+        return tuple(where.stack().idxmax())
+    print("Warning from curve_find!!!")
+    return None
 
 
 def get_csv():
@@ -139,19 +137,20 @@ def read_unicorn_curves(unicron_data):
     # print(data)
 
     # Find which col contains corresponding data
-    UV_col = zyy_find('UV', curve_names) # UV_col -> mL, UV_col -> mAU;
-    Cond_col = zyy_find('Cond', curve_names)
-    Fraction_col = zyy_find('Fraction', curve_names)
+    UV_col = curve_find('UV', curve_names) # UV_col -> mL, UV_col -> mAU;
+    Cond_col = curve_find('Cond', curve_names)
+    Fraction_col = curve_find('Fraction', curve_names)
     print(f"UV -> {UV_col}\nCond -> {Cond_col}\nFraction -> {Fraction_col}\n")
     # print(data[UV_col[1]+1])
 
     # Processing Fraction data
     fracx_1 = data[Fraction_col[1] + 1].dropna()
+    # print(fracx_1)
     # Below is modified for IEX data
     try:
-        fracx_2 = fracx_1[1:-1][:].astype(float) # If not, you will encounter 'Waste', which slows down drawing (drawing number is faster than drawing text) see line 117
+        fracx_2 = fracx_1[0:-1][:].astype(int) # If not, you will encounter 'Waste', which slows down drawing (drawing number is faster than drawing text) see line 117
     except:
-        fracx_2 = fracx_1[1:-2][:].astype(float)
+        fracx_2 = fracx_1[0:-2][:].astype(int)
     # print(fracx_2)
 
     # Extract data
@@ -160,80 +159,110 @@ def read_unicorn_curves(unicron_data):
             'Fraction':{'mL':data[Fraction_col[1]].astype(float), 'Fraction':fracx_2}}
 
 
-
-def draw_UV_Cond_Fracx(curves_from_read_unicorn_curves, UV=(-20,3000), Cond=(0,100), save=False, output=''):
+def draw_UV_Cond_Fracx(curves_from_read_unicorn_curves, title='default', UV=(-20,3000), Cond=(0,100), mode='SEC',save=False, output=''):
     # Get data from each curves
     uv_curve = curves_from_read_unicorn_curves['UV']
     cond_curve = curves_from_read_unicorn_curves['Cond']
     fraction_curve = curves_from_read_unicorn_curves['Fraction']
 
-    # check UV upper limit
-    max_UV = round_up_to_second_sig_digit(max(uv_curve['mAU']))
-    if max_UV > UV[1]:
-        UV = UV[0],max_UV
-
-    # check UV upper limit
-    max_Cond = round_up_to_second_sig_digit(max(cond_curve['mS/cm']))
-    if max_Cond > Cond[1]:
-        Cond = Cond[0], max_Cond
-
     # Draw
     # Create a figure and axis
     fig, ax1 = plt.subplots(figsize=(16, 8))
 
-    # Plot UV  on the left y-axis
-    ax1.plot(uv_curve['mL'], uv_curve['mAU'], label='', color='black', linewidth=line_thickness)
+    # Figure settings
+    ## x axis
+    ax2 = ax1.twinx()
 
-    ax1.set_xlabel('mL')
-    ax1.set_ylabel('mAU', rotation=1, fontsize=label_font_size)
+
+
+    ## left-axis
+    ax1.set_ylabel('')
     ax1.set_ylim(UV)
-    ax1.yaxis.set_major_locator(ticker.MultipleLocator(round(UV[1]/5)))  # Major ticks every 0.5 units
+    ax1.yaxis.set_major_locator(ticker.MultipleLocator(round_up_to_second_sig_digit(UV[1]/5)))  # Major ticks every 0.5 units
     ax1.yaxis.set_minor_locator(ticker.AutoMinorLocator(4))
-    ax1.yaxis.set_label_coords(0, 1.02)
+
+    ## right-axis
+    ax2.set_ylabel('')
+    ax2.set_ylim(Cond)
+    ax2.yaxis.set_major_locator(ticker.MultipleLocator(round_up_to_second_sig_digit(Cond[1]/5)))  # Major ticks every 0.5 units
+    ax2.yaxis.set_minor_locator(ticker.AutoMinorLocator(4))
+
+    # Label settings
+    ax1.set_title(filename.split()[0], y=1.02) # name
+    ## x label
+    ax1.set_xlabel('')
+    ax1.text(
+        0.5, -0.12, 'Elution / mL',
+        transform=ax1.transAxes,
+        fontsize=label_font_size,
+        ha='center',
+        va='top'
+    )
+    ## left y label
+    ax1.text(
+        0, 1.04, 'mAU',
+        transform=ax1.transAxes,
+        fontsize=label_font_size,
+        ha='center',
+        va='bottom'
+    )
+    ## right y label
+    ax2.text(
+        1, 1.04, 'mS/cm',
+        transform=ax2.transAxes,
+        fontsize=label_font_size,
+        ha='center',
+        va='bottom'
+    )
     ax1.spines['top'].set_visible(False)
-    ax1.grid(False)
-    # ax1.legend(loc='upper left')
+    ax2.spines['top'].set_visible(False)
+
+    # Plot UV/Cond on the left/right y-axis;
+    ax1.plot(uv_curve['mL'], uv_curve['mAU'], label='', color='black', linewidth=line_thickness)
+    ax2.plot(cond_curve['mL'], cond_curve['mS/cm'], label='', color='brown', linewidth=line_thickness*0.8)
 
     # Add fraction numbers
     for f, b in zip(fraction_curve['Fraction'], fraction_curve['mL']):
-        ax1.axvline(x=b, ymin=0, ymax=0.05, color='orange', linewidth=line_thickness, linestyle='-')
-        ax1.text(b, UV[0] + 5, round(f), fontsize=8, color='orange')
-
-    # Create a second y-axis for Conc B
-    ax2 = ax1.twinx()
-    ax2.plot(cond_curve['mL'], cond_curve['mS/cm'], label='', color='brown', linewidth=line_thickness)
-
-    ax2.set_ylabel('mS/cm', rotation=1, loc='top', fontsize=label_font_size)
-    ax2.set_ylim(Cond)
-    ax2.yaxis.set_major_locator(ticker.MultipleLocator(round(Cond[1]/5)))  # Major ticks every 0.5 units
-    ax2.yaxis.set_minor_locator(ticker.AutoMinorLocator(4))
-    ax2.yaxis.set_label_coords(1.02, 1.05)
-    ax2.spines['top'].set_visible(False)
-    # ax2.tick_params(axis='both', labelsize=20, color='black')
-    # ax2.legend(loc='upper right')
-
-    # Set the title
-    ax1.set_title(filename.split()[0], y=1.02)
+        ax1.axvline(x=b, ymin=0, ymax=0.05, color='orange', linewidth=line_thickness, linestyle='-', alpha=0.6)
+        # ax1.text(b, UV[0]+0.02, round(f), fontsize=8, color='orange')
+        ax1.text(
+            b, 0.01, str(round(f)),
+            transform=ax1.get_xaxis_transform(),  # x 用数据坐标，y 用 axes 坐标
+            fontsize=8,
+            color='orange',
+            ha='left',
+            va='bottom'
+        )
 
     # Adjust layout
     plt.tight_layout()
 
+    # Personal settings
+    if mode == 'SEC':
+        ax1.set_xlim((-20, 370))
+    else:
+        pass
 
+    # Save figure
     if save:
         print("File saved!")
-        plt.savefig(f'{output.split()[0]}.png', dpi=300)
+        plt.savefig(f'{title}.png', dpi=300)
+        plt.close(fig)
     else:
         plt.show()
+        plt.close(fig)
 
     return True
 
 
-# Batch drawing
 
 if __name__ == '__main__':
-    filename = '20251107_MBP3C-mRE(1-50)[WT]-linkerB_GBpH7.4_S200 pos1 001 001.csv'
-    UV=(-20, 1200) # if surpass this figure, programme will automatically chose the upper bound
+# Batch drawing
+
+    filename = '20260115_32m3C-mRE-B-30aa+H3C_GBpH7.5_S200C 001.csv'
+    UV=(-50, 800)
     Cond = (0, 50)
+    mode='SEC'
     save_figure = True
 
     # Convert file into utf-8 encoding
@@ -243,5 +272,6 @@ if __name__ == '__main__':
 
     # Read utf-8 encoding files
     curves = read_unicorn_curves(output_file)
-    # print(curves['UV']['mL'])
-    draw_UV_Cond_Fracx(curves, UV=UV, Cond=Cond, save=save_figure, output=filename)
+
+    # Main function
+    draw_UV_Cond_Fracx(curves, title=filename.split()[0], UV=UV, Cond=Cond, mode=mode, save=save_figure,  output=filename)
