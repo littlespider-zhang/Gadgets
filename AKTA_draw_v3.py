@@ -1,6 +1,6 @@
 # V3.2 update
-# optimized labeling
-# solved missing fraction #2
+# optimized UV curve recognition
+
 
 import os
 import math
@@ -59,8 +59,8 @@ def curve_find(x, df):
     where = (df == x)
     if where.sum().sum() == 1:
         return tuple(where.stack().idxmax())
-    print("Warning from curve_find!!!")
-    return None
+    else:
+        raise Exception(f"{where.sum().sum()} curves found for {x}!")
 
 
 def get_csv():
@@ -137,7 +137,15 @@ def read_unicorn_curves(unicron_data):
     # print(data)
 
     # Find which col contains corresponding data
-    UV_col = curve_find('UV', curve_names) # UV_col -> mL, UV_col -> mAU;
+    try:
+        UV_col = curve_find('UV 1_280', curve_names)  # UV_col -> mL, UV_col -> mAU;
+    except:
+        UV_col = curve_find('UV', curve_names)  # UV_col -> mL, UV_col -> mAU;
+    try:
+        UV_260_col = curve_find('UV 2_260', curve_names)  # UV_col -> mL, UV_col -> mAU;
+    except:
+        UV_260_col = None
+
     Cond_col = curve_find('Cond', curve_names)
     Fraction_col = curve_find('Fraction', curve_names)
     print(f"UV -> {UV_col}\nCond -> {Cond_col}\nFraction -> {Fraction_col}\n")
@@ -145,23 +153,41 @@ def read_unicorn_curves(unicron_data):
 
     # Processing Fraction data
     fracx_1 = data[Fraction_col[1] + 1].dropna()
-    # print(fracx_1)
-    # Below is modified for IEX data
-    try:
-        fracx_2 = fracx_1[0:-1][:].astype(int) # If not, you will encounter 'Waste', which slows down drawing (drawing number is faster than drawing text) see line 117
-    except:
-        fracx_2 = fracx_1[0:-2][:].astype(int)
+    fracx_1 = fracx_1[fracx_1 != "Waste"].reset_index(drop=True)    # remove Waste flag
+    fracx_1 = fracx_1.replace("Frac", 2)    # If manually set Fracx, /Frac/ occurs in Fraction data; Seen in HiTrap Q HP manual fraction case
+    fracx_2 = fracx_1.astype(int)
+    # try:
+    #     fracx_2 = fracx_1[0:-1][:].astype(int) # If not, you will encounter 'Waste', which slows down drawing (drawing number is faster than drawing text) see line 117
+    # except:
+    #     fracx_2 = fracx_1[0:-2][:].astype(int)
     # print(fracx_2)
 
     # Extract data
-    return {'UV':{'mL':data[UV_col[1]].astype(float), 'mAU':data[UV_col[1] + 1].astype(float)},
-            'Cond':{'mL':data[Cond_col[1]].astype(float), 'mS/cm':data[Cond_col[1]+1].astype(float)},
-            'Fraction':{'mL':data[Fraction_col[1]].astype(float), 'Fraction':fracx_2}}
+    try:
+        return {'UV':{'mL':data[UV_col[1]].astype(float), 'mAU':data[UV_col[1] + 1].astype(float)},
+                'Cond':{'mL':data[Cond_col[1]].astype(float), 'mS/cm':data[Cond_col[1]+1].astype(float)},
+                'Fraction':{'mL':data[Fraction_col[1]].astype(float), 'Fraction':fracx_2},
+                'UV 2_260':{'mL':data[UV_260_col[1]].astype(float), 'mAU':data[UV_260_col[1] + 1].astype(float)}}
+    except:
+        return {'UV': {'mL': data[UV_col[1]].astype(float), 'mAU': data[UV_col[1] + 1].astype(float)},
+                'Cond': {'mL': data[Cond_col[1]].astype(float), 'mS/cm': data[Cond_col[1] + 1].astype(float)},
+                'Fraction': {'mL': data[Fraction_col[1]].astype(float), 'Fraction': fracx_2}}
 
 
-def draw_UV_Cond_Fracx(curves_from_read_unicorn_curves, title='default', UV=(-20,3000), Cond=(0,100), mode='SEC',save=False, output=''):
+
+
+def draw_UV_Cond_Fracx(curves_from_read_unicorn_curves, title='default', UV=(-20,3000), Cond=(0,100), elution=(-20, 370),save=False):
     # Get data from each curves
-    uv_curve = curves_from_read_unicorn_curves['UV']
+    try:
+        uv_curve = curves_from_read_unicorn_curves['UV']
+    except:
+        uv_curve = curves_from_read_unicorn_curves['UV 1_280']
+
+    try:
+        uv_260_curve = curves_from_read_unicorn_curves['UV 2_260']
+    except:
+        pass
+
     cond_curve = curves_from_read_unicorn_curves['Cond']
     fraction_curve = curves_from_read_unicorn_curves['Fraction']
 
@@ -172,7 +198,7 @@ def draw_UV_Cond_Fracx(curves_from_read_unicorn_curves, title='default', UV=(-20
     # Figure settings
     ## x axis
     ax2 = ax1.twinx()
-
+    ax1.set_xlim(elution)
 
 
     ## left-axis
@@ -218,8 +244,14 @@ def draw_UV_Cond_Fracx(curves_from_read_unicorn_curves, title='default', UV=(-20
     ax2.spines['top'].set_visible(False)
 
     # Plot UV/Cond on the left/right y-axis;
-    ax1.plot(uv_curve['mL'], uv_curve['mAU'], label='', color='black', linewidth=line_thickness)
-    ax2.plot(cond_curve['mL'], cond_curve['mS/cm'], label='', color='brown', linewidth=line_thickness*0.8)
+    ax1.plot(uv_curve['mL'], uv_curve['mAU'], label='UV280', color='black', linewidth=line_thickness)
+    ax2.plot(cond_curve['mL'], cond_curve['mS/cm'], label='Cond', color='brown', linewidth=line_thickness*0.8)
+
+    try:
+        a = uv_260_curve
+        ax1.plot(uv_curve['mL'], a['mAU'], label='UV260', color='gray', linewidth=line_thickness)
+    except:
+        pass
 
     # Add fraction numbers
     for f, b in zip(fraction_curve['Fraction'], fraction_curve['mL']):
@@ -234,14 +266,14 @@ def draw_UV_Cond_Fracx(curves_from_read_unicorn_curves, title='default', UV=(-20
             va='bottom'
         )
 
+    # legend
+    legend1 = ax1.legend(loc='upper left', fontsize=16)  # 左轴图例
+    legend2 = ax2.legend(loc='upper right', fontsize=16)  # 右轴图例
+    ax1.add_artist(legend1)  # 保证左轴图例不会被覆盖
+    ax2.add_artist(legend2)  # 保证左轴图例不会被覆盖
+
     # Adjust layout
     plt.tight_layout()
-
-    # Personal settings
-    if mode == 'SEC':
-        ax1.set_xlim((-20, 370))
-    else:
-        pass
 
     # Save figure
     if save:
@@ -259,11 +291,14 @@ def draw_UV_Cond_Fracx(curves_from_read_unicorn_curves, title='default', UV=(-20
 if __name__ == '__main__':
 # Batch drawing
 
-    filename = '20260115_32m3C-mRE-B-30aa+H3C_GBpH7.5_S200C 001.csv'
-    UV=(-50, 800)
-    Cond = (0, 50)
-    mode='SEC'
+    filename = '20260227_32m3C-mRE-IDR[del81-92]_WT_T39A_S77A_GB_ResQ.csv'
+    elution = (-20, 370)    # Default for SEC (-20, 370)
+    elution = (250,350)  # Manually set elution volume
+    UV=(-20, 500)
+    Cond = (10, 200)
     save_figure = True
+
+
 
     # Convert file into utf-8 encoding
     input_file = 'AKTA/' + filename
@@ -274,4 +309,4 @@ if __name__ == '__main__':
     curves = read_unicorn_curves(output_file)
 
     # Main function
-    draw_UV_Cond_Fracx(curves, title=filename.split()[0], UV=UV, Cond=Cond, mode=mode, save=save_figure,  output=filename)
+    draw_UV_Cond_Fracx(curves, title=filename.split()[0], UV=UV, Cond=Cond, elution=elution, save=save_figure)
